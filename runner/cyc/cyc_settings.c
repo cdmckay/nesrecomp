@@ -92,15 +92,32 @@ typedef enum { SEC_NONE, SEC_DISPLAY, SEC_AUDIO, SEC_INPUT, SEC_LAUNCHER, SEC_FD
 
 /* A file of layout 1 (no [Input] BindingsLayout): each controller shortcut
  * still on layout 1's default takes the current one. One the player changed
- * stays as it is. */
+ * stays as it is, and so does any button the player gave a controller
+ * button: a shortcut whose new default one of them holds is unbound instead. */
 static void migrate_layout1(CycSettings *s)
 {
     int old[CYC_SC_COUNT];
     cyc_shortcut_pads_layout1(old);
     CycBindings now;
     cyc_bindings_default(&now);
-    for (int i = 0; i < CYC_SC_COUNT; ++i)
-        if (s->bind.shortcut[i].pad == old[i]) s->bind.shortcut[i].pad = now.shortcut[i].pad;
+    for (int i = 0; i < CYC_SC_COUNT; ++i) {
+        if (s->bind.shortcut[i].pad != old[i] || old[i] == now.shortcut[i].pad) continue;
+        int pad = now.shortcut[i].pad;
+        for (int p = 0; p < CYC_INPUT_PLAYERS; ++p)
+            for (int b = 0; b < CYC_INPUT_BUTTONS; ++b)
+                if (pad && s->bind.button[p][b].pad == pad) pad = 0;
+        s->bind.shortcut[i].pad = pad;
+        s->moved_shortcuts |= 1u << i;
+    }
+}
+
+void cyc_settings_yield_moved(CycSettings *s, const int *pads, size_t count)
+{
+    for (int i = 0; i < CYC_SC_COUNT; ++i) {
+        if (!(s->moved_shortcuts >> i & 1) || !s->bind.shortcut[i].pad) continue;
+        for (size_t j = 0; j < count; ++j)
+            if (pads[j] == s->bind.shortcut[i].pad) s->bind.shortcut[i].pad = 0;
+    }
 }
 
 bool cyc_settings_load(CycSettings *s, const char *path, FILE *log, const CycSettingsGame *game)
@@ -112,6 +129,7 @@ bool cyc_settings_load(CycSettings *s, const char *path, FILE *log, const CycSet
     int player = -1;           /* in [Keyboard.PlayerN] / [Gamepad.PlayerN]; -1: shortcuts */
     int lineno = 0;
     int layout = 1;            /* [Input] BindingsLayout; a file without it is layout 1's */
+    s->moved_shortcuts = 0;
     while (fgets(line, sizeof(line), f)) {
         ++lineno;
         char *t = trim(line);

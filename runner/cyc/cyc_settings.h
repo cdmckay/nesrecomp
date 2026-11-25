@@ -20,8 +20,10 @@
  *              (cyc_input.h CYC_BINDINGS_LAYOUT). A file without it is layout
  *              1's: each controller shortcut that still holds layout 1's
  *              default moves to the current one, once; any the player changed
- *              stays. The game's loaded() then sees the whole file, for its
- *              own keys' moves.
+ *              stays, and a moved one whose new button a binding the player
+ *              kept holds is unbound instead (the player's NES buttons here;
+ *              a game's own with cyc_settings_yield_moved). The game's
+ *              loaded() then sees the whole file, for its own keys' moves.
  *
  * Headless runs never read or write it (runs stay reproducible); only the
  * window does. A key the file lacks keeps its default; an unreadable value is
@@ -56,6 +58,7 @@ typedef struct CycSettings {
     char fds_bios[512];     /* [FDS] Bios: the player's FDS BIOS file; "" looks for one */
     CycBindings  bind;
     int  migrated;          /* set by a load that moved a binding to a new default: save the file */
+    unsigned moved_shortcuts; /* bit i: the last load moved shortcut i's controller binding */
 } CycSettings;
 
 /* A game's own [Game] keys (cyc_host_extras.h load_setting / save_settings /
@@ -76,6 +79,9 @@ void cyc_settings_default(CycSettings *s);
 bool cyc_settings_load(CycSettings *s, const char *path, FILE *log, const CycSettingsGame *game);
 /* Written whole to a temporary file, then moved over `path`. */
 bool cyc_settings_save(const CycSettings *s, const char *path, const CycSettingsGame *game);
+/* After a load that moved shortcuts (moved_shortcuts): one that landed on
+ * any of `pads` (a game's own controller bindings) is unbound instead. */
+void cyc_settings_yield_moved(CycSettings *s, const int *pads, size_t count);
 /* <exe dir>/config.ini */
 const char *cyc_settings_default_path(void);
 

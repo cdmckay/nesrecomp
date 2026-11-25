@@ -196,6 +196,15 @@ int cyc_sdl_prelaunch(const char **rom_path, const char *cli_bios, NesFdsHleAsk 
     if (!s_set_path[0]) snprintf(s_set_path, sizeof(s_set_path), "%s", cyc_settings_default_path());
     cyc_settings_default(&s_set);
     bool had_config = cyc_settings_load(&s_set, s_set_path, stderr, &GAME_KEYS);
+    /* A shortcut the load moved gives way to a game's action the player put
+     * on the same controller button. */
+    if (s_set.moved_shortcuts && s_extras && s_extras->bindings) {
+        int pads[64];
+        size_t n = 0;
+        for (size_t i = 0; i < s_extras->binding_count && n < sizeof(pads) / sizeof(pads[0]); ++i)
+            if (s_extras->bindings[i].pad && *s_extras->bindings[i].pad) pads[n++] = *s_extras->bindings[i].pad;
+        cyc_settings_yield_moved(&s_set, pads, n);
+    }
     /* Preserve legacy Zapper choices without modifying the old keybind file. */
     CycSettings legacy;
     cyc_settings_default(&legacy);

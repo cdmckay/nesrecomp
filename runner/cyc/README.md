@@ -1175,7 +1175,9 @@ Menu on RB, Fast-forward on RT and the two browsers on Back + L3 and Back +
 R3. config.ini says its layout (`[Input] BindingsLayout`); a file without it
 is layout 1's, and loading it moves each controller shortcut still on layout
 1's default to layout 2's, once, keeping any the player changed, then saves
-it. A game's own keys move the same way, in its `settings_loaded`
+it. A moved shortcut whose new button the player kept for something else (an
+NES button, or a game's action: `cyc_settings_yield_moved`) is unbound
+instead. A game's own keys move the same way, in its `settings_loaded`
 (`cyc_host_extras.h`). Controllers are read by position: the window sets
 `SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS` to 0 before SDL starts, as the
 launcher does, so a Nintendo-layout pad's lower face button is A, as on any

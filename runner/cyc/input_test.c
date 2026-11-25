@@ -492,6 +492,26 @@ static void migration(const char *dir)
     g2.move = true;
     cyc_settings_default(&back);
     CHECK(cyc_settings_load(&back, path, NULL, &game2) && back.migrated);
+    /* a layout 1 file whose player put the NES A on the left shoulder: Rewind's
+     * move there gives way, and Rewind keeps F8 alone */
+    f = fopen(path, "w");
+    fputs("[Gamepad.Player1]\na = leftshoulder\n[Gamepad.Shortcuts]\nrewind = back+rightstick\nmenu = rightshoulder\n", f);
+    fclose(f);
+    cyc_settings_default(&back);
+    CHECK(cyc_settings_load(&back, path, NULL, NULL) && back.migrated);
+    CHECK(back.bind.shortcut[CYC_SC_REWIND].pad == 0 && back.bind.shortcut[CYC_SC_REWIND].key == SDL_SCANCODE_F8);
+    CHECK(back.bind.shortcut[CYC_SC_MENU].pad == CYC_PAD_BUTTON(SDL_CONTROLLER_BUTTON_RIGHTSTICK));
+    CHECK(back.moved_shortcuts >> CYC_SC_REWIND & 1);
+    /* ...and a game's own action on a moved shortcut's new button wins too */
+    int game_pads[] = { CYC_PAD_BUTTON(SDL_CONTROLLER_BUTTON_RIGHTSTICK) };
+    cyc_settings_yield_moved(&back, game_pads, 1);
+    CHECK(back.bind.shortcut[CYC_SC_MENU].pad == 0);
+    /* a shortcut the load did not move stays, whatever is on its button */
+    back.bind.shortcut[CYC_SC_FAST_FORWARD].pad = CYC_PAD_BUTTON(SDL_CONTROLLER_BUTTON_Y);
+    back.moved_shortcuts = 0;
+    int y_pad[] = { CYC_PAD_BUTTON(SDL_CONTROLLER_BUTTON_Y) };
+    cyc_settings_yield_moved(&back, y_pad, 1);
+    CHECK(back.bind.shortcut[CYC_SC_FAST_FORWARD].pad == CYC_PAD_BUTTON(SDL_CONTROLLER_BUTTON_Y));
     /* no file: the defaults, nothing to move, loaded() not called */
     remove(path);
     LayoutGame g3 = { 0 };

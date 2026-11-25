@@ -3,8 +3,9 @@
  * binding kind, keyboard and controller evaluation, shortcut ownership,
  * controller assignment, and a config.ini round trip (every binding changed,
  * saved, reloaded into a fresh default set, compared field by field), plus
- * damaged and foreign files. Links SDL for its key and controller names only;
- * no window or device is opened. */
+ * damaged and foreign files, Nintendo pads by position, and which controllers
+ * a hidden window opens. Links SDL for its key and controller names and for
+ * virtual pads; no window or real device is opened. */
 #ifndef SDL_MAIN_HANDLED
 #define SDL_MAIN_HANDLED
 #endif
@@ -569,6 +570,44 @@ static void positional(void)
            SDL_GameControllerGetStringForButton((SDL_GameControllerButton)placed));
 }
 
+/* Which pads a window opens (cyc_input_opens_pad): a visible window every
+ * game controller, a hidden one only virtual ones. The rule for every kind
+ * of device; then SDL's answer for a virtual pad, which both open, and for
+ * each real pad on this machine, which only a visible window opens. */
+static void hidden_pads(void)
+{
+    for (int gc = 0; gc < 2; ++gc)
+        for (int virt = 0; virt < 2; ++virt) {
+            CHECK(cyc_input_pad_opens(gc, virt, false) == (bool)gc);          /* visible: every controller */
+            CHECK(cyc_input_pad_opens(gc, virt, true) == (gc && virt));       /* hidden: virtual ones only */
+        }
+    if (SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER) != 0) {
+        printf("input_test: no SDL controllers here (%s): hidden pads checked by rule only\n", SDL_GetError());
+        return;
+    }
+    SDL_VirtualJoystickDesc desc;
+    SDL_zero(desc);
+    desc.version = SDL_VIRTUAL_JOYSTICK_DESC_VERSION;
+    desc.type = SDL_JOYSTICK_TYPE_GAMECONTROLLER;
+    desc.naxes = SDL_CONTROLLER_AXIS_MAX;
+    desc.nbuttons = SDL_CONTROLLER_BUTTON_MAX;
+    desc.name = "NESRecomp virtual controller";
+    int index = SDL_JoystickAttachVirtualEx(&desc);
+    CHECK(index >= 0);
+    CHECK(cyc_input_opens_pad(index, true) && cyc_input_opens_pad(index, false));
+    int real = 0;
+    for (int i = 0; i < SDL_NumJoysticks(); ++i) {
+        if (SDL_JoystickIsVirtual(i) || !SDL_IsGameController(i)) continue;
+        CHECK(!cyc_input_opens_pad(i, true) && cyc_input_opens_pad(i, false));
+        printf("input_test: a hidden window leaves %s closed; a visible one opens it\n", SDL_JoystickNameForIndex(i));
+        ++real;
+    }
+    SDL_JoystickDetachVirtual(index);
+    SDL_Quit();
+    printf("input_test: a hidden window opens the virtual pad and %s\n",
+           real ? "none of this machine's real pads" : "no real pad (none connected to check against)");
+}
+
 int main(int argc, char **argv)
 {
     text_forms();
@@ -578,6 +617,7 @@ int main(int argc, char **argv)
     persistence(argc > 1 ? argv[1] : ".");
     migration(argc > 1 ? argv[1] : ".");
     positional();
+    hidden_pads();
     printf("input_test: %u checks passed\n", checks);
     return 0;
 }

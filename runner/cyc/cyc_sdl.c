@@ -510,7 +510,11 @@ static void open_pads(void)
     for (int i = 0; i < s_pad_count; ++i) SDL_GameControllerClose(s_pads[i]);
     s_pad_count = 0;
     for (int i = 0; i < SDL_NumJoysticks() && s_pad_count < CYC_INPUT_MAX_PADS; ++i) {
-        if (!SDL_IsGameController(i)) continue;
+        if (!cyc_input_opens_pad(i, s_hidden)) {   /* hidden: the virtual pad only (cyc_input.h) */
+            if (s_hidden && SDL_IsGameController(i))
+                printf("[cyc input] controller not opened (hidden window): %s\n", SDL_JoystickNameForIndex(i));
+            continue;
+        }
         SDL_GameController *c = SDL_GameControllerOpen(i);
         if (!c) continue;
         SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(SDL_GameControllerGetJoystick(c)), s_pad_guid[s_pad_count],

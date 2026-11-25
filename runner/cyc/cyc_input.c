@@ -96,6 +96,21 @@ void cyc_input_sdl_hints(void)
 #endif
 }
 
+/* A hidden window takes controller input without focus, so it opens only the
+ * virtual pad it drives itself: a real Xbox, PlayStation or Switch pad on the
+ * machine would otherwise press buttons in every hidden game while someone
+ * played (a test suite's games and the fixtures they save). */
+bool cyc_input_pad_opens(bool game_controller, bool is_virtual, bool hidden)
+{
+    return game_controller && (!hidden || is_virtual);
+}
+
+bool cyc_input_opens_pad(int index, bool hidden)
+{
+    return cyc_input_pad_opens(SDL_IsGameController(index) == SDL_TRUE, SDL_JoystickIsVirtual(index) == SDL_TRUE,
+                               hidden);
+}
+
 /* ---- text forms ---- */
 
 void cyc_key_text(int sc, char *out, size_t n)

@@ -94,6 +94,16 @@ const CycBindings *cyc_window_bindings(void);
  * controllers by position (SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS 0). */
 void cyc_input_sdl_hints(void);
 
+/* Which controllers a window opens. A visible window opens every game
+ * controller. A hidden one (--hidden, driven over TCP) opens only virtual
+ * ones, the TCP pad's: it lets controller input through without focus
+ * (SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS), so a real pad opened there
+ * would reach the game whenever anyone used it, a test's game included.
+ * cyc_input_pad_opens is the rule; cyc_input_opens_pad asks SDL about device
+ * `index` (after SDL_Init with joysticks). */
+bool cyc_input_pad_opens(bool game_controller, bool is_virtual, bool hidden);
+bool cyc_input_opens_pad(int index, bool hidden);
+
 /* Names: settings keys ("a", "disk") and player-facing labels. */
 const char *cyc_button_key(int button);        /* "a" "b" "select" "start" "up" "down" "left" "right" */
 const char *cyc_button_label(int button);      /* "A" ... "Right" */

@@ -4,7 +4,9 @@
  * The launcher edits a RecompLauncherCSettings; this file copies the host's
  * settings in and the edits back out, and the host persists them in its own
  * config.ini (recomp-ui's host-owned binding mode, GameInfo.settings_bindings):
- * every controller button and host shortcut, keyboard and controller.
+ * every controller button and host shortcut, keyboard and controller. The
+ * game's own actions (cyc_host_extras.h bindings) follow the shortcuts on the
+ * Controls page; the game keeps those in its [Game] keys.
  */
 #include "cyc_ui.h"
 #include "cyc_settings.h"
@@ -88,6 +90,33 @@ static void to_launcher(const CycSettings *s, RecompLauncherCSettings *io, const
     for (int i = 0; i < count; ++i) {
         io->assist_key_bind[i] = s->bind.shortcut[shortcuts[i]].key;
         io->assist_pad_bind[i] = s->bind.shortcut[shortcuts[i]].pad;
+    }
+}
+
+/* The game's own actions (cyc_host_extras.h bindings), listed after the
+ * shortcuts: as many as the launcher has rows for. */
+static int game_rows(const CycHostExtras *x, int shortcuts)
+{
+    int room = RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS - shortcuts;
+    int n = x && x->bindings ? (int)x->binding_count : 0;
+    return n < room ? n : room;
+}
+static void game_to_launcher(const CycHostExtras *x, RecompLauncherCSettings *io, int at, bool defaults)
+{
+    for (int i = 0; i < game_rows(x, at); ++i) {
+        const CycHostBinding *b = &x->bindings[i];
+        io->assist_key_bind[at + i] = defaults ? b->default_key : *b->key;
+        io->assist_pad_bind[at + i] = defaults ? b->default_pad : *b->pad;
+    }
+}
+static void game_from_launcher(const CycHostExtras *x, const RecompLauncherCSettings *io, int at)
+{
+    for (int i = 0; i < game_rows(x, at); ++i) {
+        const CycHostBinding *b = &x->bindings[i];
+        bool edited = *b->key != io->assist_key_bind[at + i] || *b->pad != io->assist_pad_bind[at + i];
+        *b->key = io->assist_key_bind[at + i];
+        *b->pad = io->assist_pad_bind[at + i];
+        if (edited && b->changed) b->changed();
     }
 }
 
@@ -186,22 +215,30 @@ int cyc_ui_launcher(CycSettings *settings, const char *settings_path, const CycH
     static char out_rom[1024], name[256];
     static uint8_t sha[1][32];
     static const char *const FDS_PATTERNS[] = { "*.fds", "*.qd" };
-    static const char *shortcut_labels[CYC_SC_COUNT];
+    static const char *shortcut_labels[RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS];
     static int default_key[RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS], default_pad[RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS];
     int shortcuts[CYC_SC_COUNT];
     int count = shortcut_list(fds, shortcuts);
+    int games = game_rows(extras, count);
 
     memset(&io, 0, sizeof(io));
     to_launcher(settings, &io, shortcuts, count);
+    game_to_launcher(extras, &io, count, false);
     /* "Restore defaults" and the per-player / shortcut resets go back to these. */
     CycSettings d;
     cyc_settings_default(&d);
     memset(&defaults, 0, sizeof(defaults));
     to_launcher(&d, &defaults, shortcuts, count);
+    game_to_launcher(extras, &defaults, count, true);
     for (int i = 0; i < count; ++i) {
         shortcut_labels[i] = cyc_shortcut_label(shortcuts[i]);
         default_key[i] = d.bind.shortcut[shortcuts[i]].key;
         default_pad[i] = d.bind.shortcut[shortcuts[i]].pad;
+    }
+    for (int i = 0; i < games; ++i) {
+        shortcut_labels[count + i] = extras->bindings[i].label;
+        default_key[count + i] = extras->bindings[i].default_key;
+        default_pad[count + i] = extras->bindings[i].default_pad;
     }
 
     memset(&gi, 0, sizeof(gi));
@@ -234,7 +271,6 @@ int cyc_ui_launcher(CycSettings *settings, const char *settings_path, const CycH
     gi.has_vsync = 1;
     /* a game's view modes are a runtime-menu row (live), not a launcher toggle */
     gi.widescreen_supported = 0;
-    (void)extras;
     gi.config_path = settings_path;
 #ifdef CYC_GAME_PASSWORD_SAVE
     /* --config must not redirect an existing mantra away from the executable. */
@@ -268,7 +304,7 @@ int cyc_ui_launcher(CycSettings *settings, const char *settings_path, const CycH
     gi.mods = (const RecompLauncherCModProvider *)cyc_diagnostics_provider(mods);
     gi.default_settings = &defaults;
     gi.assist_binding_labels = shortcut_labels;
-    gi.assist_binding_count = count;
+    gi.assist_binding_count = count + games;   /* the host's shortcuts, then the game's actions */
     gi.assist_default_key_bind = default_key;
     gi.assist_default_pad_bind = default_pad;
     if (fds) {
@@ -319,6 +355,7 @@ int cyc_ui_launcher(CycSettings *settings, const char *settings_path, const CycH
     cyc_diagnostics_note("launcher returned action=%d", act);
     /* The edits come back whichever way the launcher closed. */
     from_launcher(&io, settings, shortcuts, count);
+    game_from_launcher(extras, &io, count);
 #ifdef NES_HOST_HAS_RECOMP_UI
     if(act==RECOMP_LAUNCHER_RESULT_LAUNCH && io.netplay_launch.enabled) {
         NesNetplayConfig cfg;

@@ -90,6 +90,19 @@ static bool parse_int(const char *v, int *out)
 
 typedef enum { SEC_NONE, SEC_DISPLAY, SEC_AUDIO, SEC_INPUT, SEC_LAUNCHER, SEC_FDS, SEC_KEYS, SEC_PADS, SEC_GAME, SEC_ZAPPER, SEC_NETPLAY, SEC_REWIND } Section;
 
+/* A file of layout 1 (no [Input] BindingsLayout): each controller shortcut
+ * still on layout 1's default takes the current one. One the player changed
+ * stays as it is. */
+static void migrate_layout1(CycSettings *s)
+{
+    int old[CYC_SC_COUNT];
+    cyc_shortcut_pads_layout1(old);
+    CycBindings now;
+    cyc_bindings_default(&now);
+    for (int i = 0; i < CYC_SC_COUNT; ++i)
+        if (s->bind.shortcut[i].pad == old[i]) s->bind.shortcut[i].pad = now.shortcut[i].pad;
+}
+
 bool cyc_settings_load(CycSettings *s, const char *path, FILE *log, const CycSettingsGame *game)
 {
     FILE *f = fopen(path, "r");
@@ -98,6 +111,7 @@ bool cyc_settings_load(CycSettings *s, const char *path, FILE *log, const CycSet
     Section sec = SEC_NONE;
     int player = -1;           /* in [Keyboard.PlayerN] / [Gamepad.PlayerN]; -1: shortcuts */
     int lineno = 0;
+    int layout = 1;            /* [Input] BindingsLayout; a file without it is layout 1's */
     while (fgets(line, sizeof(line), f)) {
         ++lineno;
         char *t = trim(line);
@@ -165,6 +179,8 @@ bool cyc_settings_load(CycSettings *s, const char *path, FILE *log, const CycSet
                 if (eq_ci(what, "Source")) bad = !parse_int(val, &v) || (s->bind.source[p] = clampi(v, 0, 2), 0);
                 else if (eq_ci(what, "Deadzone")) bad = !parse_int(val, &v) || (s->bind.deadzone[p] = clampi(v, 0, 100), 0);
                 else if (eq_ci(what, "Device")) snprintf(s->bind.device[p], sizeof(s->bind.device[p]), "%s", val);
+            } else if (eq_ci(key, "BindingsLayout")) {
+                bad = !parse_int(val, &v) || v < 1 || (layout = v, 0);
             }
             break;
         case SEC_GAME:
@@ -215,6 +231,11 @@ bool cyc_settings_load(CycSettings *s, const char *path, FILE *log, const CycSet
         if (bad && log) fprintf(log, "%s:%d: cannot read %s = %s (kept the default)\n", path, lineno, key, val);
     }
     fclose(f);
+    if (layout < CYC_BINDINGS_LAYOUT) {
+        migrate_layout1(s);
+        s->migrated = 1;
+    }
+    if (game && game->loaded && game->loaded(game->ctx)) s->migrated = 1;
     return true;
 }
 
@@ -231,7 +252,7 @@ bool cyc_settings_save(const CycSettings *s, const char *path, const CycSettings
             s->window_scale, s->fullscreen, s->integer_scale, s->linear_filter, s->vsync);
     fprintf(f,"HdPackEnabled = %d\nHdPackDir = %s\n",s->hdpack_enabled,s->hdpack_dir);
     fprintf(f, "[Audio]\nEnabled = %d\nVolume = %d\n", s->audio_enabled, s->volume);
-    fprintf(f, "[Input]\n");
+    fprintf(f, "[Input]\n# the default bindings' layout this file was written with\nBindingsLayout = %d\n", CYC_BINDINGS_LAYOUT);
     for (int p = 0; p < CYC_INPUT_PLAYERS; ++p)
         fprintf(f, "Player%dSource = %d\nPlayer%dDevice = %s\nPlayer%dDeadzone = %d\n", p + 1, s->bind.source[p], p + 1,
                 s->bind.device[p], p + 1, s->bind.deadzone[p]);

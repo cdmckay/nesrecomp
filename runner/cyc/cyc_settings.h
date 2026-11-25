@@ -16,6 +16,12 @@
  *   [Keyboard.Shortcuts] / [Gamepad.Shortcuts]  disk = D, menu = Escape ...
  *   [Game]     ViewMode (a game's view modes, cyc_host_extras.h), then the
  *              game's own keys (CycSettingsGame)
+ *   [Input]    BindingsLayout: the defaults' layout the file was written with
+ *              (cyc_input.h CYC_BINDINGS_LAYOUT). A file without it is layout
+ *              1's: each controller shortcut that still holds layout 1's
+ *              default moves to the current one, once; any the player changed
+ *              stays. The game's loaded() then sees the whole file, for its
+ *              own keys' moves.
  *
  * Headless runs never read or write it (runs stay reproducible); only the
  * window does. A key the file lacks keeps its default; an unreadable value is
@@ -49,13 +55,18 @@ typedef struct CycSettings {
     NesFdsHleAsk fds_hle;   /* the player's saved HLE choices (the plan's "settings" source) */
     char fds_bios[512];     /* [FDS] Bios: the player's FDS BIOS file; "" looks for one */
     CycBindings  bind;
+    int  migrated;          /* set by a load that moved a binding to a new default: save the file */
 } CycSettings;
 
-/* A game's own [Game] keys (cyc_host_extras.h load_setting / save_settings). */
+/* A game's own [Game] keys (cyc_host_extras.h load_setting / save_settings /
+ * settings_loaded). loaded (may be NULL) runs once the whole file is read,
+ * and returns true when it moved a value (a new default), so the file is
+ * saved. */
 typedef struct {
     void *ctx;
     void (*load)(void *ctx, const char *key, const char *value);
     void (*save)(void *ctx, FILE *f);
+    bool (*loaded)(void *ctx);
 } CycSettingsGame;
 
 void cyc_settings_default(CycSettings *s);

@@ -157,7 +157,14 @@ static void game_save(void *ctx, FILE *f)
     (void)ctx;
     if (s_extras && s_extras->save_settings) s_extras->save_settings(s_extras->ctx, f);
 }
-static const CycSettingsGame GAME_KEYS = { NULL, game_load, game_save };
+static bool game_loaded(void *ctx)
+{
+    (void)ctx;
+    return s_extras && s_extras->settings_loaded && s_extras->settings_loaded(s_extras->ctx);
+}
+static const CycSettingsGame GAME_KEYS = { NULL, game_load, game_save, game_loaded };
+
+const CycBindings *cyc_window_bindings(void) { return &s_set.bind; }
 
 static void save_settings(void)
 {
@@ -198,7 +205,10 @@ int cyc_sdl_prelaunch(const char **rom_path, const char *cli_bios, NesFdsHleAsk 
         if (!(s_set.zapper_keys & 1) && (legacy.zapper_keys & 1)) s_set.zapper_mouse = legacy.zapper_mouse;
         if (!(s_set.zapper_keys & 2) && (legacy.zapper_keys & 2)) s_set.zapper_crosshair = legacy.zapper_crosshair;
     }
-    if (!had_config) save_settings();
+    /* A new file, or one moved to new defaults (cyc_settings.h): written now,
+     * so the move happens once. */
+    if (!had_config || s_set.migrated) save_settings();
+    s_set.migrated = 0;
     s_fds = looks_fds(*rom_path);
     /* The mod catalog beside the executable, for a game built with mods. */
     char mods[1100], err[600];
@@ -563,7 +573,10 @@ static bool vpad_load(const char *path)
     return true;
 }
 
-static bool vpad_attach(void)
+/* vendor and product: 0 for the plain virtual controller, or a real pad's
+ * USB ids (Nintendo's Switch Pro: 0x057E, 0x2009), which SDL gives that pad's
+ * type and button labels. */
+static bool vpad_attach_as(int vendor, int product)
 {
     SDL_VirtualJoystickDesc desc;
     SDL_zero(desc);
@@ -571,14 +584,28 @@ static bool vpad_attach(void)
     desc.type = SDL_JOYSTICK_TYPE_GAMECONTROLLER;
     desc.naxes = SDL_CONTROLLER_AXIS_MAX;
     desc.nbuttons = SDL_CONTROLLER_BUTTON_MAX;
+    desc.vendor_id = (Uint16)vendor;
+    desc.product_id = (Uint16)product;
     desc.name = "NESRecomp virtual controller";
     int index = SDL_JoystickAttachVirtualEx(&desc);
     if (index < 0 || !(s_vpad_joy = SDL_JoystickOpen(index))) {
         fprintf(stderr, "virtual controller: %s\n", SDL_GetError());
         return false;
     }
+    /* The triggers at rest from the start: SDL takes an axis's first value for
+     * where it rests, so a trigger first seen pushed would never let go. */
+    SDL_JoystickSetVirtualAxis(s_vpad_joy, SDL_CONTROLLER_AXIS_TRIGGERLEFT, SDL_JOYSTICK_AXIS_MIN);
+    SDL_JoystickSetVirtualAxis(s_vpad_joy, SDL_CONTROLLER_AXIS_TRIGGERRIGHT, SDL_JOYSTICK_AXIS_MIN);
     printf("[cyc input] virtual controller attached (%d steps)\n", s_vpad_count);
     return true;
+}
+static bool vpad_attach(void) { return vpad_attach_as(0, 0); }
+
+/* A virtual axis at rest: a trigger's is the bottom of its range (SDL reads
+ * the middle as half pressed), a stick's the middle. */
+static Sint16 vpad_axis_rest(int axis)
+{
+    return axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT || axis == SDL_CONTROLLER_AXIS_TRIGGERRIGHT ? SDL_JOYSTICK_AXIS_MIN : 0;
 }
 
 static void vpad_tick(long frame)
@@ -607,6 +634,7 @@ static void vpad_tick(long frame)
  * everything the window draws (the toast, the menu, the dev bar). */
 
 static int      s_pad_hold[SDL_CONTROLLER_BUTTON_MAX];
+static int      s_axis_hold[SDL_CONTROLLER_AXIS_MAX];
 static int      s_act_hold[CYC_INPUT_PLAYERS][CYC_INPUT_BUTTONS];
 static int      s_sc_hold[CYC_SC_COUNT];
 static char     s_ui_shot[1024];
@@ -647,27 +675,41 @@ static void tcp_key(int id, const char *line)
     cyc_tcp_ok(id, NULL);
 }
 
-static bool vpad_attach(void);
 static void open_pads(void);
 static void tcp_pad(int id, const char *line)
 {
     char names[128];
     if (!cyc_tcp_str(line, "buttons", names, sizeof(names))) {
-        cyc_tcp_err(id, "pad: buttons is SDL controller button names joined by + (\"leftshoulder\", \"a+start\")");
+        cyc_tcp_err(id, "pad: buttons is SDL controller button names joined by + (\"leftshoulder\", \"a+start\"), "
+                        "or one axis pushed all the way (\"lefttrigger+\", \"leftx-\")");
         return;
     }
     int v;
-    if (!cyc_pad_parse(names, &v) || !(CYC_PAD_IS_BUTTON(v) || CYC_PAD_IS_COMBO(v))) {
-        cyc_tcp_err(id, "pad: unknown button names");
+    if (!cyc_pad_parse(names, &v) || !v) {
+        cyc_tcp_err(id, "pad: unknown button or axis names");
         return;
     }
     if (!s_vpad_joy) {
-        if (!vpad_attach()) { cyc_tcp_err(id, "pad: no virtual controller"); return; }
+        /* the first press attaches it: as a plain virtual pad, or with a real pad's ids (vendor, product) */
+        long vendor = 0, product = 0;
+        cyc_tcp_long(line, "vendor", &vendor);
+        cyc_tcp_long(line, "product", &product);
+        if (!vpad_attach_as((int)vendor, (int)product)) { cyc_tcp_err(id, "pad: no virtual controller"); return; }
         SDL_PumpEvents();
         open_pads();
+        /* Opened now: its hot-plug event would open every controller again,
+         * after this press, and a trigger SDL first sees pushed never lets go. */
+        SDL_FlushEvent(SDL_CONTROLLERDEVICEADDED);
+    }
+    long frames = hold_frames(line, 3);
+    if (CYC_PAD_IS_AXIS(v)) {
+        int axis = (v - 100) / 2;
+        s_axis_hold[axis] = (int)frames;
+        SDL_JoystickSetVirtualAxis(s_vpad_joy, axis, (v - 100) & 1 ? SDL_JOYSTICK_AXIS_MAX : SDL_JOYSTICK_AXIS_MIN);
+        cyc_tcp_ok(id, NULL);
+        return;
     }
     uint32_t mask = CYC_PAD_IS_BUTTON(v) ? 1u << (v - 1) : (uint32_t)(v - 1000);
-    long frames = hold_frames(line, 3);
     for (int b = 0; b < SDL_CONTROLLER_BUTTON_MAX; ++b)
         if (mask & (1u << b)) {
             s_pad_hold[b] = (int)frames;
@@ -1034,7 +1076,7 @@ static void tcp_setup(void)
     cyc_tcp_register("zapper", "aim x/y, trigger, mouse true; optional window_x/window_y", tcp_zapper);
     cyc_tcp_register("state", "frame, menu, drive, toast, HLE, disk save, bindings, build", tcp_state);
     cyc_tcp_register("key", "hold an SDL key through the bindings: name, frames", tcp_key);
-    cyc_tcp_register("pad", "hold virtual game controller buttons: buttons (a+start), frames", tcp_pad);
+    cyc_tcp_register("pad", "hold virtual game controller buttons (a+start) or push an axis (lefttrigger+): buttons, frames", tcp_pad);
     cyc_tcp_register("action", "hold an action: name (a..right, disk, menu, ...), player, frames", tcp_action);
     cyc_tcp_register("disk", "the drive: do press|choose|eject|insert, side", tcp_disk);
     cyc_tcp_register("menu", "the runtime menu: open true|false, nav up|down|left|right|accept|back|toggle", tcp_menu);
@@ -1061,6 +1103,8 @@ static void tcp_tick(void)
         if (s_key_hold[sc] && --s_key_hold[sc] == 0) push_key((SDL_Scancode)sc, false);
     for (int b = 0; b < SDL_CONTROLLER_BUTTON_MAX; ++b)
         if (s_pad_hold[b] && --s_pad_hold[b] == 0 && s_vpad_joy) SDL_JoystickSetVirtualButton(s_vpad_joy, b, 0);
+    for (int a = 0; a < SDL_CONTROLLER_AXIS_MAX; ++a)
+        if (s_axis_hold[a] && --s_axis_hold[a] == 0 && s_vpad_joy) SDL_JoystickSetVirtualAxis(s_vpad_joy, a, vpad_axis_rest(a));
     for (int p = 0; p < CYC_INPUT_PLAYERS; ++p)
         for (int b = 0; b < CYC_INPUT_BUTTONS; ++b)
             if (s_act_hold[p][b]) --s_act_hold[p][b];
@@ -1323,6 +1367,8 @@ int cyc_sdl_main(const char *title_in, int scale)
     /* A hidden window never has the keyboard focus, and SDL drops controller
      * input for an unfocused application unless told otherwise. */
     if (s_hidden) SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+    /* Controllers by position, launcher or not (the launcher's SDL_Quit clears its hints). */
+    cyc_input_sdl_hints();
     cyc_diagnostics_note("initializing SDL video/controllers/audio");
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK | SDL_INIT_AUDIO) != 0) {
         char message[700]; snprintf(message, sizeof(message), "SDL initialization failed: %s", SDL_GetError());

@@ -26,11 +26,18 @@
  *                every callback for these keys to menu_callbacks (whose
  *                context is its own). Rows need a recomp-ui build.
  *
- *   load_setting / save_settings
+ *   load_setting / save_settings / settings_loaded
  *                The game's own persistent values, in config.ini [Game]: the
  *                host calls load_setting for every key of that section at
  *                start, and save_settings (write "Key = value" lines) whenever
- *                it saves.
+ *                it saves. settings_loaded runs once the whole file is read
+ *                (only when there is one): true asks the host to save it now,
+ *                after the game moved a value to a new default.
+ *
+ *   bindings     The game's own bindable actions (CycHostBinding): the
+ *                launcher's Controls page lists them after the host's
+ *                shortcuts, edits them in place and calls changed(); the game
+ *                reads them itself (event) and keeps them in [Game].
  *
  *   power_on     (both) The machine was just powered on, before its first
  *                frame (and after mods activated): reset the game's own state.
@@ -76,6 +83,15 @@ typedef struct {
     const char *help;         /* one line for the usage */
 } CycHostOption;
 
+/* One of the game's actions, a key and a controller binding (cyc_input.h's
+ * encodings: an SDL scancode, the portable pad value; 0 unbound). */
+typedef struct {
+    const char *label;          /* "Use item" */
+    int *key, *pad;             /* the game's own variables, read and written in place */
+    int default_key, default_pad;
+    void (*changed)(void);      /* after an edit (may be NULL) */
+} CycHostBinding;
+
 typedef struct CycHostExtras {
     void *ctx;
     const uint32_t *(*present)(void *ctx, int *width, int *height);
@@ -105,6 +121,9 @@ typedef struct CycHostExtras {
     unsigned audio_rate;
     void (*audio_mix)(void *ctx, int16_t *samples, size_t count);
     void (*state_loaded)(void *ctx);
+    bool (*settings_loaded)(void *ctx);
+    const CycHostBinding *bindings;
+    size_t binding_count;
 } CycHostExtras;
 
 const CycHostExtras *cyc_host_extras(void);

@@ -10,7 +10,7 @@
 
 #include <string.h>
 
-#define NES_MOD_MAX_FUNCTION_HOOKS 128
+#define NES_MOD_MAX_FUNCTION_HOOKS 256   /* Faxanadu DX registers 131 (#147) */
 
 typedef struct {
     const char                 *id;

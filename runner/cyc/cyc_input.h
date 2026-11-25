@@ -80,6 +80,19 @@ typedef struct {
 } CycBindings;
 
 void cyc_bindings_default(CycBindings *b);
+/* The layout of the defaults: 2 since the controller shortcuts moved (the
+ * right stick's press opens the Menu, the shoulders rewind and fast-forward).
+ * config.ini records it ([Input] BindingsLayout); cyc_settings_load moves a
+ * file of an older layout onto the current defaults once. */
+#define CYC_BINDINGS_LAYOUT 2
+/* Layout 1's controller shortcuts, each a binding (0 unbound). */
+void cyc_shortcut_pads_layout1(int pad[CYC_SC_COUNT]);
+/* The window's bindings as the player has them (cyc_sdl.c), for a game
+ * that names a button in its own text (a Controls row). */
+const CycBindings *cyc_window_bindings(void);
+/* SDL hints the window and any controller reader need before SDL_Init:
+ * controllers by position (SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS 0). */
+void cyc_input_sdl_hints(void);
 
 /* Names: settings keys ("a", "disk") and player-facing labels. */
 const char *cyc_button_key(int button);        /* "a" "b" "select" "start" "up" "down" "left" "right" */

@@ -181,8 +181,15 @@ class Window:
         return rc
 
 
+# The Disk action on the left shoulder as well as D. The defaults since layout 2
+# leave Disk on D alone (the left shoulder rewinds), so the window starts from
+# a config.ini that gives it the shoulder back; it says layout 2, so the
+# load moves nothing (cyc_settings.h).
+CONTROLLER_DISK = '[Input]\nBindingsLayout = 2\n[Gamepad.Shortcuts]\ndisk = leftshoulder\nrewind = none\n'
+
+
 def production(exe, image, bios, out, recomp_ui):
-    w = Window(exe, image, bios, out, 'production')
+    w = Window(exe, image, bios, out, 'production', CONTROLLER_DISK)
     s = w.until(lambda s: s['frame'] >= 60, 900, 'boot')
     check(not s['dev_ui'] and s['fds'] and s['side'] == 0 and s['sides'] == 2, f'start state {s}')
     check(s['disk_binding'] == 'D / LB', f'disk binding {s["disk_binding"]}')

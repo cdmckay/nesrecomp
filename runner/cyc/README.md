@@ -1161,12 +1161,25 @@ the keyboard and every controller. Defaults (the nesrecomp NES layout):
 |---|---|---|
 | A, B, Select, Start | Z, X, Backslash, Return (player 1) | A, X, Back, Start |
 | D-pad | arrows | D-pad, left stick |
-| Disk (FDS only) | D | LB |
-| Menu | Escape | RB |
-| Fast-forward (held) | Tab | RT |
+| Disk (FDS only) | D | - |
+| Menu | Escape | R3 (the right stick's press) |
+| Fast-forward (held) | Tab | RB |
 | Screenshot (the picture, `cyc_shot_NNNN.png`) | F12 | - |
-| Save state / load state (`saves/<image>.state`) | F8 / F9 | - |
+| Save-state browser | F7 | - |
+| Rewind | F8 | LB |
 | Fullscreen | F11 | - |
+
+These are layout 2 (`CYC_BINDINGS_LAYOUT`, Faxanadu DX #147): the triggers,
+Back and the face buttons are left to the game. Layout 1 had Disk on LB, the
+Menu on RB, Fast-forward on RT and the two browsers on Back + L3 and Back +
+R3. config.ini says its layout (`[Input] BindingsLayout`); a file without it
+is layout 1's, and loading it moves each controller shortcut still on layout
+1's default to layout 2's, once, keeping any the player changed, then saves
+it. A game's own keys move the same way, in its `settings_loaded`
+(`cyc_host_extras.h`). Controllers are read by position: the window sets
+`SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS` to 0 before SDL starts, as the
+launcher does, so a Nintendo-layout pad's lower face button is A, as on any
+other pad (sdl2-compat maps it by its printed letter otherwise).
 
 A key or button bound to a shortcut belongs to the shortcut while it is
 held. config.ini beside the executable (`cyc_settings.h`; `--config FILE`)
@@ -1190,7 +1203,8 @@ swap byte-for-byte against the same `--fds-event`s at every alignment.
 **recomp-ui** (`cyc_ui.h`): a game built with it (project.cmake finds the
 game's `recomp-ui/` submodule, or `-DNESRECOMP_RECOMP_UI=<checkout>`) opens
 recomp-ui's launcher first (the image, settings, and every binding, keyboard
-and controller, on its Controls page; `NESRECOMP_NO_LAUNCHER=1` skips it) and
+and controller, on its Controls page, the game's own actions after the
+host's shortcuts; `NESRECOMP_NO_LAUNCHER=1` skips it) and
 has recomp-ui's runtime menu on the Menu shortcut: display and audio, a Disk
 Drive section for a disk image only (the side in the drive, swap, eject /
 insert, and one row per HLE axis), the shortcut list, the game's own rows

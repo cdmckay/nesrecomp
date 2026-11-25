@@ -56,14 +56,44 @@ void cyc_bindings_default(CycBindings *b)
         }
     }
     /* Shortcuts avoid every default controller key and every key a dev build
-     * keeps for itself (F1-F6). F7/F8 open states and rewind. */
-    b->shortcut[CYC_SC_DISK]         = (CycBinding){ SDL_SCANCODE_D, CYC_PAD_BUTTON(SDL_CONTROLLER_BUTTON_LEFTSHOULDER) };
-    b->shortcut[CYC_SC_MENU]         = (CycBinding){ SDL_SCANCODE_ESCAPE, CYC_PAD_BUTTON(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) };
-    b->shortcut[CYC_SC_FAST_FORWARD] = (CycBinding){ SDL_SCANCODE_TAB, CYC_PAD_AXIS(SDL_CONTROLLER_AXIS_TRIGGERRIGHT, 1) };
+     * keeps for itself (F1-F6). F7/F8 open states and rewind. On a controller
+     * (layout 2, Faxanadu DX #147) the triggers and the face buttons are the
+     * game's: Rewind on the left shoulder, Fast-forward on the right, the Menu
+     * on the right stick's press, and the save states in the Menu (and F7).
+     * Disk keeps only D: the left shoulder is Rewind's. A config.ini written
+     * with layout 1's defaults moves to these once (cyc_settings.c). */
+    b->shortcut[CYC_SC_DISK]         = (CycBinding){ SDL_SCANCODE_D, 0 };
+    b->shortcut[CYC_SC_MENU]         = (CycBinding){ SDL_SCANCODE_ESCAPE, CYC_PAD_BUTTON(SDL_CONTROLLER_BUTTON_RIGHTSTICK) };
+    b->shortcut[CYC_SC_FAST_FORWARD] = (CycBinding){ SDL_SCANCODE_TAB, CYC_PAD_BUTTON(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) };
     b->shortcut[CYC_SC_SCREENSHOT]   = (CycBinding){ SDL_SCANCODE_F12, 0 };
     b->shortcut[CYC_SC_FULLSCREEN]   = (CycBinding){ SDL_SCANCODE_F11, 0 };
-    b->shortcut[CYC_SC_STATE_MENU]   = (CycBinding){ SDL_SCANCODE_F7, CYC_PAD_COMBO((1u << SDL_CONTROLLER_BUTTON_BACK) | (1u << SDL_CONTROLLER_BUTTON_LEFTSTICK)) };
-    b->shortcut[CYC_SC_REWIND]       = (CycBinding){ SDL_SCANCODE_F8, CYC_PAD_COMBO((1u << SDL_CONTROLLER_BUTTON_BACK) | (1u << SDL_CONTROLLER_BUTTON_RIGHTSTICK)) };
+    b->shortcut[CYC_SC_STATE_MENU]   = (CycBinding){ SDL_SCANCODE_F7, 0 };
+    b->shortcut[CYC_SC_REWIND]       = (CycBinding){ SDL_SCANCODE_F8, CYC_PAD_BUTTON(SDL_CONTROLLER_BUTTON_LEFTSHOULDER) };
+}
+
+void cyc_shortcut_pads_layout1(int pad[CYC_SC_COUNT])
+{
+    /* What cyc_bindings_default gave the controller before layout 2. */
+    for (int i = 0; i < CYC_SC_COUNT; ++i) pad[i] = 0;
+    pad[CYC_SC_DISK]         = CYC_PAD_BUTTON(SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
+    pad[CYC_SC_MENU]         = CYC_PAD_BUTTON(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);
+    pad[CYC_SC_FAST_FORWARD] = CYC_PAD_AXIS(SDL_CONTROLLER_AXIS_TRIGGERRIGHT, 1);
+    pad[CYC_SC_STATE_MENU]   = CYC_PAD_COMBO((1u << SDL_CONTROLLER_BUTTON_BACK) | (1u << SDL_CONTROLLER_BUTTON_LEFTSTICK));
+    pad[CYC_SC_REWIND]       = CYC_PAD_COMBO((1u << SDL_CONTROLLER_BUTTON_BACK) | (1u << SDL_CONTROLLER_BUTTON_RIGHTSTICK));
+}
+
+void cyc_input_sdl_hints(void)
+{
+    /* Positions, not printed letters: a Nintendo-layout pad (a Switch Pro, an
+     * 8BitDo in Switch mode) reports its lower face button as A, as every
+     * other pad does, so a binding means the same place on each. SDL2 (and
+     * sdl2-compat, which reads the hint as each controller opens) maps such a
+     * pad by its labels unless told; the launcher asks the same. The default
+     * priority lets SDL_GAMECONTROLLER_USE_BUTTON_LABELS=1 in the environment
+     * have the labels back. */
+#ifdef SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS
+    SDL_SetHintWithPriority(SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS, "0", SDL_HINT_DEFAULT);
+#endif
 }
 
 /* ---- text forms ---- */

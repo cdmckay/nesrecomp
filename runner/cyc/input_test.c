@@ -96,11 +96,19 @@ static void defaults(void)
     CHECK(b.button[0][0].key == SDL_SCANCODE_Z && b.button[0][1].key == SDL_SCANCODE_X);
     CHECK(b.button[0][2].key == SDL_SCANCODE_BACKSLASH && b.button[0][3].key == SDL_SCANCODE_RETURN);
     CHECK(b.button[1][0].key == 0);                          /* player 2 has no keyboard layout */
-    CHECK(b.shortcut[CYC_SC_DISK].key == SDL_SCANCODE_D);
-    CHECK(b.shortcut[CYC_SC_DISK].pad == CYC_PAD_BUTTON(SDL_CONTROLLER_BUTTON_LEFTSHOULDER));
+    CHECK(b.shortcut[CYC_SC_DISK].key == SDL_SCANCODE_D && b.shortcut[CYC_SC_DISK].pad == 0);
     CHECK(b.shortcut[CYC_SC_MENU].key == SDL_SCANCODE_ESCAPE);
-    CHECK(b.shortcut[CYC_SC_STATE_MENU].key == SDL_SCANCODE_F7);
+    /* layout 2: the Menu on the right stick's press, Rewind and Fast-forward on the shoulders */
+    CHECK(b.shortcut[CYC_SC_MENU].pad == CYC_PAD_BUTTON(SDL_CONTROLLER_BUTTON_RIGHTSTICK));
+    CHECK(b.shortcut[CYC_SC_FAST_FORWARD].pad == CYC_PAD_BUTTON(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER));
+    CHECK(b.shortcut[CYC_SC_REWIND].pad == CYC_PAD_BUTTON(SDL_CONTROLLER_BUTTON_LEFTSHOULDER));
+    CHECK(b.shortcut[CYC_SC_STATE_MENU].key == SDL_SCANCODE_F7 && b.shortcut[CYC_SC_STATE_MENU].pad == 0);
     CHECK(b.shortcut[CYC_SC_REWIND].key == SDL_SCANCODE_F8);
+    /* no shortcut leaves a trigger or Back held for a game to read */
+    for (int s = 0; s < CYC_SC_COUNT; ++s) {
+        int pad = b.shortcut[s].pad;
+        CHECK(!CYC_PAD_IS_AXIS(pad) && !CYC_PAD_IS_COMBO(pad) && pad != CYC_PAD_BUTTON(SDL_CONTROLLER_BUTTON_BACK));
+    }
     /* no shortcut default collides with a controller default, a dev key (F1-F6)
      * or another shortcut */
     for (int s = 0; s < CYC_SC_COUNT; ++s) {
@@ -208,8 +216,13 @@ static void evaluation(void)
     keys[SDL_SCANCODE_D] = 0;
     f.pad_buttons[1] = 1u << SDL_CONTROLLER_BUTTON_LEFTSHOULDER;   /* a pad no player reads */
     cyc_input_eval(&b, &f, &st);
-    CHECK(st.shortcut[CYC_SC_DISK]);
+    CHECK(st.shortcut[CYC_SC_REWIND] && !st.shortcut[CYC_SC_DISK]);
+    f.pad_buttons[1] = 1u << SDL_CONTROLLER_BUTTON_RIGHTSHOULDER;
+    cyc_input_eval(&b, &f, &st);
+    CHECK(st.shortcut[CYC_SC_FAST_FORWARD]);
     f.pad_buttons[1] = 0;
+    /* an axis shortcut, past half travel */
+    b.shortcut[CYC_SC_FAST_FORWARD].pad = CYC_PAD_AXIS(SDL_CONTROLLER_AXIS_TRIGGERRIGHT, 1);
     f.pad_axes[0][SDL_CONTROLLER_AXIS_TRIGGERRIGHT] = 20000;
     cyc_input_eval(&b, &f, &st);
     CHECK(st.shortcut[CYC_SC_FAST_FORWARD]);
@@ -217,6 +230,7 @@ static void evaluation(void)
     cyc_input_eval(&b, &f, &st);
     CHECK(!st.shortcut[CYC_SC_FAST_FORWARD]);
     memset(f.pad_axes, 0, sizeof(f.pad_axes));
+    cyc_bindings_default(&b);
 
     /* a key bound to a shortcut and a button is the shortcut's */
     b.shortcut[CYC_SC_DISK].key = SDL_SCANCODE_Z;
@@ -362,10 +376,10 @@ static void persistence(const char *dir)
     s.view_mode = 2;
     GameKeys gk = { 0 };
     snprintf(gk.value, sizeof(gk.value), "wide");
-    CycSettingsGame game = { &gk, game_load, game_save };
+    CycSettingsGame game = { &gk, game_load, game_save, NULL };
     CHECK(cyc_settings_save(&s, path, &game));
     GameKeys gk2 = { 0 };
-    CycSettingsGame game2 = { &gk2, game_load, game_save };
+    CycSettingsGame game2 = { &gk2, game_load, game_save, NULL };
     cyc_settings_default(&back);
     CHECK(cyc_settings_load(&back, path, stderr, &game2));
     CHECK(back.view_mode == 2 && gk2.loads == 1 && !strcmp(gk2.value, "wide"));
@@ -409,6 +423,132 @@ static void persistence(const char *dir)
     remove(logpath);
 }
 
+/* A config.ini an older build wrote (layout 1, no BindingsLayout): every
+ * controller shortcut still on layout 1's default moves to the current one,
+ * once; one the player changed stays; the game's loaded() sees the whole file
+ * and can ask for a save. */
+typedef struct { int loads, loaded; bool move; } LayoutGame;
+static void layout_load(void *ctx, const char *key, const char *value)
+{
+    (void)key; (void)value;
+    ((LayoutGame *)ctx)->loads++;
+}
+static void layout_save(void *ctx, FILE *f) { (void)ctx; fprintf(f, "HudMode = wide\n"); }
+static bool layout_loaded(void *ctx)
+{
+    LayoutGame *g = ctx;
+    g->loaded++;
+    return g->move;
+}
+static void migration(const char *dir)
+{
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/input_test_layout1.ini", dir);
+    /* as a build before layout 2 wrote it: every shortcut on its default but
+     * Fast-forward, which the player moved to Y */
+    FILE *f = fopen(path, "w");
+    fputs("[Input]\nPlayer1Source = 1\n"
+          "[Gamepad.Player1]\na = a\nb = x\nselect = back\nstart = start\n"
+          "[Keyboard.Shortcuts]\ndisk = D\nmenu = Escape\nfast_forward = Tab\nscreenshot = F12\nfullscreen = F11\n"
+          "state_menu = F7\nrewind = F8\n"
+          "[Gamepad.Shortcuts]\ndisk = leftshoulder\nmenu = rightshoulder\nfast_forward = y\nscreenshot = none\n"
+          "fullscreen = none\nstate_menu = back+leftstick\nrewind = back+rightstick\n"
+          "[Game]\nViewMode = 1\nHudMode = wide\n", f);
+    fclose(f);
+    CycSettings s, d;
+    cyc_settings_default(&d);
+    cyc_settings_default(&s);
+    LayoutGame g = { 0 };
+    CycSettingsGame game = { &g, layout_load, layout_save, layout_loaded };
+    CHECK(cyc_settings_load(&s, path, stderr, &game));
+    CHECK(s.migrated && g.loads == 1 && g.loaded == 1);
+    CHECK(s.bind.shortcut[CYC_SC_DISK].pad == 0);
+    CHECK(s.bind.shortcut[CYC_SC_MENU].pad == CYC_PAD_BUTTON(SDL_CONTROLLER_BUTTON_RIGHTSTICK));
+    CHECK(s.bind.shortcut[CYC_SC_FAST_FORWARD].pad == CYC_PAD_BUTTON(SDL_CONTROLLER_BUTTON_Y));   /* the player's */
+    CHECK(s.bind.shortcut[CYC_SC_STATE_MENU].pad == 0);
+    CHECK(s.bind.shortcut[CYC_SC_REWIND].pad == CYC_PAD_BUTTON(SDL_CONTROLLER_BUTTON_LEFTSHOULDER));
+    for (int i = 0; i < CYC_SC_COUNT; ++i) CHECK(s.bind.shortcut[i].key == d.bind.shortcut[i].key);
+    CHECK(!memcmp(s.bind.button, d.bind.button, sizeof(s.bind.button)));   /* the player's buttons as they were */
+    /* saved: the file says layout 2 */
+    CHECK(cyc_settings_save(&s, path, &game));
+    f = fopen(path, "r");
+    char all[8192];
+    size_t n = fread(all, 1, sizeof(all) - 1, f);
+    fclose(f);
+    all[n] = 0;
+    CHECK(strstr(all, "BindingsLayout = 2\n") && strstr(all, "[Gamepad.Shortcuts]\ndisk = none\nmenu = rightstick\n"));
+    CHECK(strstr(all, "state_menu = none\nrewind = leftshoulder\n"));
+    /* in layout 2 a binding the player sets back to layout 1's default stays there */
+    s.bind.shortcut[CYC_SC_MENU].pad = CYC_PAD_BUTTON(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);
+    CHECK(cyc_settings_save(&s, path, &game));
+    CycSettings back;
+    cyc_settings_default(&back);
+    LayoutGame g2 = { 0 };
+    CycSettingsGame game2 = { &g2, layout_load, layout_save, layout_loaded };
+    CHECK(cyc_settings_load(&back, path, stderr, &game2));
+    CHECK(!back.migrated && g2.loaded == 1);
+    CHECK(!memcmp(&back.bind, &s.bind, sizeof(s.bind)));
+    /* the game alone can ask for the save */
+    g2.move = true;
+    cyc_settings_default(&back);
+    CHECK(cyc_settings_load(&back, path, NULL, &game2) && back.migrated);
+    /* no file: the defaults, nothing to move, loaded() not called */
+    remove(path);
+    LayoutGame g3 = { 0 };
+    CycSettingsGame game3 = { &g3, layout_load, layout_save, layout_loaded };
+    cyc_settings_default(&back);
+    CHECK(!cyc_settings_load(&back, path, NULL, &game3) && !back.migrated && g3.loaded == 0);
+}
+
+/* Controllers by position: a Nintendo-layout pad's lower face button reports
+ * as A once cyc_input_sdl_hints() has run, as on every other pad; sdl2-compat
+ * otherwise reports it by its printed letter, B. A virtual Switch Pro
+ * Controller (Nintendo's USB ids) stands in for one. */
+static int south_press(void)
+{
+    SDL_VirtualJoystickDesc desc;
+    SDL_zero(desc);
+    desc.version = SDL_VIRTUAL_JOYSTICK_DESC_VERSION;
+    desc.type = SDL_JOYSTICK_TYPE_GAMECONTROLLER;
+    desc.naxes = SDL_CONTROLLER_AXIS_MAX;
+    desc.nbuttons = SDL_CONTROLLER_BUTTON_MAX;
+    desc.vendor_id = 0x057E;
+    desc.product_id = 0x2009;
+    desc.name = "Nintendo Switch Pro Controller";
+    int index = SDL_JoystickAttachVirtualEx(&desc);
+    CHECK(index >= 0);
+    SDL_Joystick *joy = SDL_JoystickOpen(index);
+    SDL_GameController *pad = SDL_GameControllerOpen(index);
+    CHECK(joy && pad);
+    SDL_Event e;
+    SDL_PumpEvents();
+    while (SDL_PollEvent(&e)) {}
+    SDL_JoystickSetVirtualButton(joy, 0, 1);   /* a virtual pad's button 0: the lower face button */
+    SDL_PumpEvents();
+    int button = -1;
+    while (SDL_PollEvent(&e))
+        if (e.type == SDL_CONTROLLERBUTTONDOWN) button = e.cbutton.button;
+    SDL_GameControllerClose(pad);
+    SDL_JoystickClose(joy);
+    SDL_JoystickDetachVirtual(index);
+    return button;
+}
+static void positional(void)
+{
+    if (SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER) != 0) {
+        printf("input_test: no SDL controllers here (%s): positional pads not checked\n", SDL_GetError());
+        return;
+    }
+    int labelled = south_press();
+    cyc_input_sdl_hints();
+    int placed = south_press();
+    SDL_Quit();
+    CHECK(placed == SDL_CONTROLLER_BUTTON_A);
+    printf("input_test: a Switch Pro's lower face button reads %s by its label, %s by its place\n",
+           labelled >= 0 ? SDL_GameControllerGetStringForButton((SDL_GameControllerButton)labelled) : "nothing",
+           SDL_GameControllerGetStringForButton((SDL_GameControllerButton)placed));
+}
+
 int main(int argc, char **argv)
 {
     text_forms();
@@ -416,6 +556,8 @@ int main(int argc, char **argv)
     evaluation();
     logical_seats();
     persistence(argc > 1 ? argv[1] : ".");
+    migration(argc > 1 ? argv[1] : ".");
+    positional();
     printf("input_test: %u checks passed\n", checks);
     return 0;
 }

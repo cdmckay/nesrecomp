@@ -1190,6 +1190,15 @@ keeps the bindings (`[Keyboard.PlayerN]`, `[Gamepad.PlayerN]`,
 `lefttrigger+`, `back+start` chords), the display and audio settings and the
 FDS HLE choices. Headless runs never read it.
 
+**VSync** (`[Display] VSync`) is on by default: a present waits for the
+display, so the picture never tears. Fast-forward and `--uncapped` turn it off
+while they run, and a `--hidden` window never waits, whatever the setting:
+no display shows it. Before, it was off by default, and every config.ini
+said `VSync = 0`, chosen or not. config.ini says its display defaults
+(`[Display] DisplayDefaults`, `CYC_DISPLAY_DEFAULTS`); loading a file without
+it turns VSync on, once, then saves it, so a `VSync = 0` set after that (the
+launcher's Graphics page, or by hand) stays.
+
 **Disk** (`cyc_disk_action.h`): the first press shows a toast with the drive's
 state (disk and side, motor, disk save) and the binding; each press while the
 toast is up turns the disk: eject, the drive empty for 30 frames, the next

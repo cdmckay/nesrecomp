@@ -3,8 +3,9 @@
  * binding kind, keyboard and controller evaluation, shortcut ownership,
  * controller assignment, and a config.ini round trip (every binding changed,
  * saved, reloaded into a fresh default set, compared field by field), plus
- * damaged and foreign files, Nintendo pads by position, and which controllers
- * a hidden window opens. Links SDL for its key and controller names and for
+ * damaged and foreign files, an older file's move to new defaults (bindings
+ * and VSync), Nintendo pads by position, and which controllers a hidden
+ * window opens. Links SDL for its key and controller names and for
  * virtual pads; no window or real device is opened. */
 #ifndef SDL_MAIN_HANDLED
 #define SDL_MAIN_HANDLED
@@ -324,7 +325,7 @@ static void persistence(const char *dir)
     cyc_settings_default(&s);
     CHECK(!cyc_settings_load(&s, path, NULL, NULL));               /* no file: defaults stay */
     /* change every field */
-    s.window_scale = 5; s.fullscreen = 2; s.integer_scale = 0; s.linear_filter = 1;
+    s.window_scale = 5; s.fullscreen = 2; s.integer_scale = 0; s.linear_filter = 1; s.vsync = 0;
     s.audio_enabled = 0; s.volume = 35; s.skip_launcher = 1;
     s.rewind_enabled = 0; s.rewind_depth = 150; s.rewind_interval = 15;
     s.hdpack_enabled = 0;
@@ -350,6 +351,7 @@ static void persistence(const char *dir)
     cyc_settings_default(&back);
     CHECK(cyc_settings_load(&back, path, stderr, NULL));
     CHECK(back.window_scale == 5 && back.fullscreen == 2 && back.integer_scale == 0 && back.linear_filter == 1);
+    CHECK(back.vsync == 0 && !back.migrated);                  /* VSync off, saved now: the player's */
     CHECK(back.audio_enabled == 0 && back.volume == 35 && back.skip_launcher == 1);
     CHECK(back.rewind_enabled == 0 && back.rewind_depth == 150 && back.rewind_interval == 15);
     CHECK(!back.hdpack_enabled && !strcmp(back.hdpack_dir,s.hdpack_dir));
@@ -521,6 +523,69 @@ static void migration(const char *dir)
     CHECK(!cyc_settings_load(&back, path, NULL, &game3) && !back.migrated && g3.loaded == 0);
 }
 
+/* VSync: on by default. A config.ini from before (no [Display]
+ * DisplayDefaults) said VSync = 0 because that was the default, so its load
+ * turns it on and asks for a save, once; the saved file says defaults 2, and
+ * a VSync = 0 set after that stays. */
+static void write_text(const char *path, const char *text)
+{
+    FILE *f = fopen(path, "w");
+    CHECK(f);
+    fputs(text, f);
+    fclose(f);
+}
+static void vsync_default(const char *dir)
+{
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/input_test_vsync.ini", dir);
+    remove(path);
+    CycSettings s;
+    /* a fresh profile: on, and no file to move */
+    cyc_settings_default(&s);
+    CHECK(s.vsync == 1);
+    CHECK(!cyc_settings_load(&s, path, NULL, NULL) && s.vsync == 1 && !s.migrated);
+    /* as a build before wrote it, on its default: on, once, and saved so */
+    write_text(path, "[Display]\nWindowScale = 3\nFullscreen = 0\nIntegerScale = 1\nLinearFilter = 0\nVSync = 0\n"
+                     "HdPackEnabled = 1\nHdPackDir = \n[Input]\nBindingsLayout = 2\n");
+    cyc_settings_default(&s);
+    CHECK(cyc_settings_load(&s, path, stderr, NULL) && s.vsync == 1 && s.migrated);
+    CHECK(s.window_scale == 3 && s.moved_shortcuts == 0);             /* nothing else moved */
+    CHECK(cyc_settings_save(&s, path, NULL));
+    FILE *f = fopen(path, "r");
+    char all[8192];
+    size_t n = fread(all, 1, sizeof(all) - 1, f);
+    fclose(f);
+    all[n] = 0;
+    CHECK(strstr(all, "VSync = 1\n") && strstr(all, "\nDisplayDefaults = 2\n"));
+    /* loaded again: on, nothing to move */
+    cyc_settings_default(&s);
+    CHECK(cyc_settings_load(&s, path, stderr, NULL) && s.vsync == 1 && !s.migrated);
+    /* the player turns it off: it stays off */
+    s.vsync = 0;
+    CHECK(cyc_settings_save(&s, path, NULL));
+    for (int i = 0; i < 2; ++i) {
+        cyc_settings_default(&s);
+        CHECK(cyc_settings_load(&s, path, stderr, NULL) && s.vsync == 0 && !s.migrated);
+        CHECK(cyc_settings_save(&s, path, NULL));
+    }
+    /* an older file already on stays on and gets the marker; one without
+     * the key (a hand-written one) takes the default */
+    write_text(path, "[Display]\nVSync = 1\n[Input]\nBindingsLayout = 2\n");
+    cyc_settings_default(&s);
+    CHECK(cyc_settings_load(&s, path, stderr, NULL) && s.vsync == 1 && s.migrated);
+    write_text(path, "[Display]\nWindowScale = 1\n");
+    cyc_settings_default(&s);
+    CHECK(cyc_settings_load(&s, path, stderr, NULL) && s.vsync == 1 && s.window_scale == 1);
+    /* defaults that are no number read as 1's, and move; later ones keep the player's off */
+    write_text(path, "[Display]\nVSync = 0\nDisplayDefaults = new\n[Input]\nBindingsLayout = 2\n");
+    cyc_settings_default(&s);
+    CHECK(cyc_settings_load(&s, path, NULL, NULL) && s.vsync == 1 && s.migrated);
+    write_text(path, "[Display]\nVSync = 0\nDisplayDefaults = 3\n[Input]\nBindingsLayout = 2\n");
+    cyc_settings_default(&s);
+    CHECK(cyc_settings_load(&s, path, NULL, NULL) && s.vsync == 0 && !s.migrated);
+    remove(path);
+}
+
 /* Controllers by position: a Nintendo-layout pad's lower face button reports
  * as A once cyc_input_sdl_hints() has run, as on every other pad; sdl2-compat
  * otherwise reports it by its printed letter, B. A virtual Switch Pro
@@ -616,6 +681,7 @@ int main(int argc, char **argv)
     logical_seats();
     persistence(argc > 1 ? argv[1] : ".");
     migration(argc > 1 ? argv[1] : ".");
+    vsync_default(argc > 1 ? argv[1] : ".");
     positional();
     hidden_pads();
     printf("input_test: %u checks passed\n", checks);

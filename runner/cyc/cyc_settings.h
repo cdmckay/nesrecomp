@@ -7,6 +7,12 @@
  * LinearFilter; [Audio] Volume; [Input] PlayerNSource / PlayerNDevice /
  * PlayerNDeadzone; [Launcher] SkipLauncher). The cycle host adds:
  *
+ *   [Display]  VSync (on by default); DisplayDefaults: the display defaults
+ *              the file was written with (CYC_DISPLAY_DEFAULTS). A file
+ *              without it is defaults 1's, from when VSync was off by
+ *              default: every such file says VSync = 0, the player's choice
+ *              or not, so VSync turns on, once. Saving writes defaults 2, so
+ *              a VSync = 0 the player sets from then on stays.
  *   [Audio]    Enabled
  *   [FDS]      one key per HLE axis (common/nes_fds_hle.h nes_fds_hle_axes():
  *              AutoSwap, FastLoad, ...): on, off or default (game.toml decides);
@@ -38,6 +44,9 @@
 extern "C" {
 #endif
 
+/* [Display] DisplayDefaults: 1 had VSync off (no key), 2 has it on. */
+#define CYC_DISPLAY_DEFAULTS 2
+
 typedef struct CycSettings {
     int  window_scale;      /* 1..8 */
     int  fullscreen;        /* 0 off, 1 borderless, 2 exclusive */
@@ -57,7 +66,7 @@ typedef struct CycSettings {
     NesFdsHleAsk fds_hle;   /* the player's saved HLE choices (the plan's "settings" source) */
     char fds_bios[512];     /* [FDS] Bios: the player's FDS BIOS file; "" looks for one */
     CycBindings  bind;
-    int  migrated;          /* set by a load that moved a binding to a new default: save the file */
+    int  migrated;          /* set by a load that moved a setting to a new default: save the file */
     unsigned moved_shortcuts; /* bit i: the last load moved shortcut i's controller binding */
 } CycSettings;
 

@@ -104,6 +104,9 @@ static void edit_everything(RecompLauncherCSettings *io)
     }
 }
 
+/* The Graphics page's VSync row set to Off. */
+static void vsync_off(RecompLauncherCSettings *io) { io->vsync = RECOMP_LAUNCHER_VSYNC_OFF; }
+
 /* ---- the FDS BIOS: identity, lookup order, the launcher's verdict, config.ini ---- */
 static void write_bytes(const char *path, const uint8_t *data, size_t n)
 {
@@ -372,6 +375,15 @@ int main(int argc, char **argv)
     script_result = RECOMP_LAUNCHER_RESULT_QUIT;
     CHECK(cyc_ui_launcher(&back, cfg, NULL, &rom, true, NULL, NULL) == 1);
     CHECK(seen_io.assist_key_bind[CYC_SC_DISK] == SDL_SCANCODE_F1 && seen_io.volume == 40);
+    CHECK(seen_io.vsync == RECOMP_LAUNCHER_VSYNC_ON);
+    /* VSync turned off there stays off, in config.ini and in the launcher */
+    script_edit = vsync_off;
+    CHECK(cyc_ui_launcher(&back, cfg, NULL, &rom, true, NULL, NULL) == 1 && back.vsync == 0);
+    CHECK(cyc_settings_save(&back, cfg, NULL));
+    cyc_settings_default(&back);
+    CHECK(cyc_settings_load(&back, cfg, stderr, NULL) && back.vsync == 0 && !back.migrated);
+    script_edit = NULL;
+    CHECK(cyc_ui_launcher(&back, cfg, NULL, &rom, true, NULL, NULL) == 1 && seen_io.vsync == RECOMP_LAUNCHER_VSYNC_OFF);
 
     /* a cartridge launcher's shortcut rows map around the missing Disk row */
     cyc_settings_default(&s);

@@ -129,6 +129,7 @@ bool cyc_settings_load(CycSettings *s, const char *path, FILE *log, const CycSet
     int player = -1;           /* in [Keyboard.PlayerN] / [Gamepad.PlayerN]; -1: shortcuts */
     int lineno = 0;
     int layout = 1;            /* [Input] BindingsLayout; a file without it is layout 1's */
+    int display = 1;           /* [Display] DisplayDefaults; a file without it is defaults 1's */
     s->moved_shortcuts = 0;
     while (fgets(line, sizeof(line), f)) {
         ++lineno;
@@ -172,6 +173,7 @@ bool cyc_settings_load(CycSettings *s, const char *path, FILE *log, const CycSet
             else if (eq_ci(key, "IntegerScale")) bad = !parse_int(val, &v) || (s->integer_scale = v != 0, 0);
             else if (eq_ci(key, "LinearFilter")) bad = !parse_int(val, &v) || (s->linear_filter = v != 0, 0);
             else if (eq_ci(key, "VSync")) bad = !parse_int(val, &v) || (s->vsync = v != 0, 0);
+            else if (eq_ci(key, "DisplayDefaults")) bad = !parse_int(val, &v) || v < 1 || (display = v, 0);
             else if (eq_ci(key, "HdPackEnabled")) bad = !parse_int(val, &v) || (s->hdpack_enabled = v != 0, 0);
             else if (eq_ci(key, "HdPackDir")) snprintf(s->hdpack_dir,sizeof s->hdpack_dir,"%s",val);
             break;
@@ -253,6 +255,14 @@ bool cyc_settings_load(CycSettings *s, const char *path, FILE *log, const CycSet
         migrate_layout1(s);
         s->migrated = 1;
     }
+    /* Defaults 1 had VSync off, and saving writes every key, so each file
+     * then says VSync = 0 whether the player chose it or not: on, once. The
+     * save this asks for writes defaults 2, after which VSync = 0 is the
+     * player's and stays. A file already on just gets the marker. */
+    if (display < CYC_DISPLAY_DEFAULTS) {
+        s->vsync = 1;
+        s->migrated = 1;
+    }
     if (game && game->loaded && game->loaded(game->ctx)) s->migrated = 1;
     return true;
 }
@@ -268,6 +278,8 @@ bool cyc_settings_save(const CycSettings *s, const char *path, const CycSettings
                "# window write this file. Keys are SDL key and controller names.\n");
     fprintf(f, "[Display]\nWindowScale = %d\nFullscreen = %d\nIntegerScale = %d\nLinearFilter = %d\nVSync = %d\n",
             s->window_scale, s->fullscreen, s->integer_scale, s->linear_filter, s->vsync);
+    fprintf(f, "# the display defaults this file was written with (1 had VSync off)\nDisplayDefaults = %d\n",
+            CYC_DISPLAY_DEFAULTS);
     fprintf(f,"HdPackEnabled = %d\nHdPackDir = %s\n",s->hdpack_enabled,s->hdpack_dir);
     fprintf(f, "[Audio]\nEnabled = %d\nVolume = %d\n", s->audio_enabled, s->volume);
     fprintf(f, "[Input]\n# the default bindings' layout this file was written with\nBindingsLayout = %d\n", CYC_BINDINGS_LAYOUT);

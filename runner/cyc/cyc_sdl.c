@@ -292,6 +292,13 @@ static SDL_AudioDeviceID s_audio_dev;
  * Older SDL builds and drivers without that control retain unsynced output. */
 static bool s_vsync_supported, s_vsync_active;
 
+/* The setting, but never on a hidden window: no display shows it, so a
+ * present must not wait for one (a software renderer, the dummy driver's,
+ * simulates VSync at the display's rate). Uncapped runs turn it off anyway;
+ * this keeps a hidden test game at normal speed off the display's clock
+ * too. The setting itself, and the file, stay as the player has them. */
+static bool vsync_wanted(void) { return s_set.vsync && !s_hidden; }
+
 static bool renderer_vsync(bool enabled)
 {
     if (enabled == s_vsync_active) return true;
@@ -312,7 +319,7 @@ static bool create_renderer(void)
     if (s_win && !s_ren) s_ren = SDL_CreateRenderer(s_win, -1, SDL_RENDERER_SOFTWARE);
     if (!s_ren) return false;
 #if SDL_VERSION_ATLEAST(2, 0, 18)
-    if (s_set.vsync && SDL_RenderSetVSync(s_ren, 1) == 0) {
+    if (vsync_wanted() && SDL_RenderSetVSync(s_ren, 1) == 0) {
         /* Verify both directions before creating textures or the runtime UI.
          * A backend that cannot disable blocking must not cap fast-forward. */
         if (SDL_RenderSetVSync(s_ren, 0) == 0) {
@@ -324,7 +331,7 @@ static bool create_renderer(void)
         }
     }
 #endif
-    if (s_ren) renderer_vsync(s_set.vsync && !s_uncapped);
+    if (s_ren) renderer_vsync(vsync_wanted() && !s_uncapped);
     return s_ren != NULL;
 }
 
@@ -1411,8 +1418,9 @@ int cyc_sdl_main(const char *title_in, int scale)
         return 1;
     }
     if (s_set.vsync)
-        fprintf(stderr, "vsync %s\n", s_vsync_supported ? "available: disabled while fast-forwarding or uncapped"
-                                                      : "unavailable: presenting without synchronization");
+        fprintf(stderr, "vsync %s\n", s_hidden ? "off: the window is hidden"
+                                   : s_vsync_supported ? "available: disabled while fast-forwarding or uncapped"
+                                                       : "unavailable: presenting without synchronization");
     apply_settings();
     SDL_RendererInfo renderer = {0}; SDL_GetRendererInfo(s_ren, &renderer);
     cyc_diagnostics_note("game window ready driver=%s renderer=%s flags=%u texture=%dx%d displays=%d",
@@ -1673,7 +1681,7 @@ int cyc_sdl_main(const char *title_in, int scale)
          * presents rather than slowing guest execution. */
         Uint64 tnow = SDL_GetPerformanceCounter();
         bool unpaced = fast || s_uncapped;
-        renderer_vsync(s_set.vsync && !unpaced);
+        renderer_vsync(vsync_wanted() && !unpaced);
         bool present = cyc_frame_present_due(tnow, next, frame_ticks, shown,
                                              s_vsync_active, unpaced || open || inactive);
         if (present && !(unpaced && s_vsync_active) &&

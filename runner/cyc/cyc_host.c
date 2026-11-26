@@ -152,7 +152,8 @@
  *                          the Disk action, the menu, screenshots of the picture
  *                          and of the window, state, the event ring
  *     --hidden             never show the window (with SDL_VIDEODRIVER=dummy,
- *                          nothing reaches a desktop); drive it over --tcp
+ *                          nothing reaches a desktop); drive it over --tcp.
+ *                          Its presents never wait on VSync, whatever the setting
  *
  * Without CYC_WITH_SDL the host is always headless.
  */

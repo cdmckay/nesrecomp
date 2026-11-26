@@ -288,7 +288,7 @@ int main(int argc, char **argv)
     CHECK(seen_game.assist_binding_count == CYC_SC_COUNT);            /* Disk offered: an FDS program */
     CHECK(!strcmp(seen_game.assist_binding_labels[0], cyc_shortcut_label(CYC_SC_DISK)));
     CHECK(seen_game.assist_default_key_bind[0] == SDL_SCANCODE_D);
-    CHECK(seen_game.assist_default_pad_bind[0] == RECOMP_LAUNCHER_PAD_BUTTON(SDL_CONTROLLER_BUTTON_LEFTSHOULDER));
+    CHECK(seen_game.assist_default_pad_bind[0] == 0);                  /* layout 2: Disk on no controller button */
     CHECK(seen_game.default_settings && seen_game.default_settings->player_key_bind[0][4] == SDL_SCANCODE_Z);
     CHECK(seen_game.rom_cache_path && strstr(seen_game.rom_cache_path, "rom.cfg"));
     /* An external config path must not move a password save away from the exe. */
@@ -308,7 +308,7 @@ int main(int argc, char **argv)
     CHECK(seen_io.player_key_bind[0][6] == SDL_SCANCODE_RETURN && seen_io.player_key_bind[0][7] == SDL_SCANCODE_BACKSLASH);
     CHECK(seen_io.player_pad_bind[0][5] == RECOMP_LAUNCHER_PAD_BUTTON(SDL_CONTROLLER_BUTTON_X));
     CHECK(seen_io.player_src[0] == 1 && seen_io.player_src[1] == 2 && seen_io.volume == 100);
-    CHECK(seen_io.vsync == RECOMP_LAUNCHER_VSYNC_OFF);
+    CHECK(seen_io.vsync == RECOMP_LAUNCHER_VSYNC_ON);                 /* on by default */
 #ifdef RECOMP_LAUNCHER_HAS_ZAPPER_SETTINGS
     CHECK(seen_io.zapper_mouse == 1 && seen_io.zapper_crosshair == 1);
 #endif

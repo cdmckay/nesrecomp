@@ -15,6 +15,14 @@
  *                is presentation: screenshots from the window use it,
  *                headless --hash-out / --screenshot / --frame-log never do.
  *
+ *   sharp_scale  True: the window scales the picture present() returned this
+ *                frame by its one fixed rule (cyc_present_fit.h: the largest
+ *                fit, nearest-neighbour at a whole multiple, sharp otherwise),
+ *                and the player's IntegerScale and LinearFilter do not apply
+ *                to it. For a game whose canvas is fixed, so that every player
+ *                sees the picture its tests check. False, NULL, or a frame
+ *                present() left to the engine: those settings, as before.
+ *
  *   view_modes   RECOMP_RUNTIME_UI_VIEW_MODE_* bits (recomp_runtime_ui.h) the
  *                game can present; the runtime menu then shows the standard
  *                "View mode" row, and get/set_view_mode read and apply it
@@ -124,6 +132,7 @@ typedef struct CycHostExtras {
     bool (*settings_loaded)(void *ctx);
     const CycHostBinding *bindings;
     size_t binding_count;
+    bool (*sharp_scale)(void *ctx);
 } CycHostExtras;
 
 const CycHostExtras *cyc_host_extras(void);

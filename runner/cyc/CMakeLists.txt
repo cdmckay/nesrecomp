@@ -87,6 +87,14 @@ add_test(NAME cyc_disk_action_test COMMAND cyc_disk_action_test)
 add_executable(cyc_frame_pacing_test frame_pacing_test.c)
 add_test(NAME cyc_frame_pacing_test COMMAND cyc_frame_pacing_test)
 
+# The window's fixed scale for a game's picture (cyc_present_fit.h): the fit,
+# its filter and multiple, and the sharp scale's one-pixel seams.
+add_executable(cyc_present_fit_test present_fit_test.c)
+if(NOT MSVC)
+    target_link_libraries(cyc_present_fit_test PRIVATE m)
+endif()
+add_test(NAME cyc_present_fit_test COMMAND cyc_present_fit_test)
+
 # The window's input actions and their persistence (cyc_input.h, cyc_settings.h).
 find_package(Python3 3.11 REQUIRED COMPONENTS Interpreter)
 add_test(NAME cyc_bad_game_config COMMAND "${Python3_EXECUTABLE}"

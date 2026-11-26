@@ -37,6 +37,9 @@
  * (cyc_render.h): the machine's 256x240 frame, or a game compositor's at the
  * width cyc_video.h settles on. A width change (a new mode, or Fit following a
  * window resize) is applied after the present and before the next picture.
+ * The window scales it as the player's IntegerScale and LinearFilter say,
+ * unless the game's picture asks for the one fixed scale (cyc_host_extras.h
+ * sharp_scale, cyc_present_fit.h).
  *
  * Save states (cyc_state.h): the Save state / Load state shortcuts (F8 / F9)
  * and the menu's rows use one slot, <exe dir>/saves/<image stem>.cycstate
@@ -60,6 +63,7 @@
 #include "cyc_mod.h"
 #include "cyc_overlay.h"
 #include "cyc_png.h"
+#include "cyc_present_fit.h"
 #include "cyc_recomp.h"
 #include "cyc_render.h"
 #include "cyc_run.h"
@@ -281,6 +285,13 @@ static SDL_Window   *s_win;
 static SDL_Renderer *s_ren;
 static SDL_Texture  *s_tex;
 static int           s_tex_w, s_tex_h;
+/* The fixed scale (cyc_present_fit.h) is the picture's: s_sharp while it is.
+ * Its sharp case draws the picture nearest-neighbour into s_fit_tex, a whole
+ * multiple of it, first (s_fit_w x s_fit_h; s_fit_failed: a size the
+ * renderer refused, not asked for again). */
+static bool          s_sharp;
+static SDL_Texture  *s_fit_tex;
+static int           s_fit_w, s_fit_h, s_fit_failed_w, s_fit_failed_h;
 static bool          s_bar;          /* dev builds: the drive bar */
 static long          s_frames_done;
 static bool          s_running = true;
@@ -350,17 +361,23 @@ static void     request_quit(void) { s_running = false; }
 /* Whether the last picture() came from cyc_render_present (the native frame or
  * a game compositor's), whose native origin cyc_render_native_origin knows. */
 static bool s_picture_rendered;
+/* Whether it came from the game's present(), and the game asks for the fixed
+ * scale for it (sharp_scale). */
+static bool s_picture_sharp;
 
 static const uint32_t *picture(int *w, int *h)
 {
-    s_picture_rendered = false;
+    s_picture_rendered = s_picture_sharp = false;
 #ifdef NESRECOMP_CYCLE_HDPACK_MODS
     const uint32_t *hd = cyc_hdpack_mod_present(w, h);
     if (hd) return hd;
 #endif
     if (s_extras && s_extras->present) {
         const uint32_t *p = s_extras->present(s_extras->ctx, w, h);
-        if (p && *w > 0 && *h > 0 && *w <= CYC_PRESENT_MAX_DIMENSION && *h <= CYC_PRESENT_MAX_DIMENSION) return p;
+        if (p && *w > 0 && *h > 0 && *w <= CYC_PRESENT_MAX_DIMENSION && *h <= CYC_PRESENT_MAX_DIMENSION) {
+            s_picture_sharp = s_extras->sharp_scale && s_extras->sharp_scale(s_extras->ctx);
+            return p;
+        }
     }
     s_picture_rendered = true;
     return cyc_render_present(w, h);
@@ -474,8 +491,10 @@ static void apply_picture_scale(void)
     /* Integer scaling cannot fit a picture larger than the drawable. SDL2's
      * accelerated renderer can produce a black frame with that negative
      * viewport. Fit fractionally until the window is large enough, keeping
-     * the player's integer-scaling preference for subsequent enlargement. */
-    SDL_bool integer = s_set.integer_scale && ow >= s_tex_w && oh >= logical_h()
+     * the player's integer-scaling preference for subsequent enlargement.
+     * The fixed scale fits fractionally too: the overlays and the mouse use
+     * the logical size, which then letterboxes as the fit does. */
+    SDL_bool integer = !s_sharp && s_set.integer_scale && ow >= s_tex_w && oh >= logical_h()
                      ? SDL_TRUE : SDL_FALSE;
     if (SDL_RenderGetIntegerScale(s_ren) != integer)
         SDL_RenderSetIntegerScale(s_ren, integer);
@@ -1257,6 +1276,72 @@ static void present_shot(long frame)
     free(px);
 }
 
+/* The sharp scale's first step: a target texture of the picture's size times
+ * the multiple, drawn linearly to the fit. Kept while the size holds; false
+ * when the renderer has no target textures or refuses the size. */
+static bool fit_texture(int w, int h)
+{
+    if (s_fit_tex && s_fit_w == w && s_fit_h == h) return true;
+    if (s_fit_tex) SDL_DestroyTexture(s_fit_tex);
+    s_fit_tex = NULL;
+    s_fit_w = s_fit_h = 0;
+    if (w == s_fit_failed_w && h == s_fit_failed_h) return false;
+    if (SDL_RenderTargetSupported(s_ren))
+        s_fit_tex = SDL_CreateTexture(s_ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, w, h);
+    if (!s_fit_tex) {
+        fprintf(stderr, "sharp scale: no %dx%d target texture (%s); scaling linearly\n", w, h,
+                SDL_RenderTargetSupported(s_ren) ? SDL_GetError() : "the renderer has none");
+        s_fit_failed_w = w;
+        s_fit_failed_h = h;
+        return false;
+    }
+    SDL_SetTextureScaleMode(s_fit_tex, SDL_ScaleModeLinear);
+    SDL_SetTextureBlendMode(s_fit_tex, SDL_BLENDMODE_NONE);
+    s_fit_w = w;
+    s_fit_h = h;
+    return true;
+}
+
+/* The picture (s_tex, w x h) by the fixed scale (cyc_present_fit.h), in the
+ * drawable's pixels, at the fit: the logical size is off meanwhile, as the
+ * runtime menu draws (cyc_ui_imgui.cpp), and back for the overlays. A sharp
+ * fit draws nearest-neighbour to the whole multiple above it, then that
+ * linearly down to the fit; a renderer without target textures gets the
+ * linear step alone. The clear is the caller's colour. */
+static void draw_fixed(int w, int h)
+{
+    int ow = 0, oh = 0;
+    SDL_GetRendererOutputSize(s_ren, &ow, &oh);
+    CycFit fit = cyc_present_fit(w, logical_h(), ow, oh);
+    /* a dev build's drive bar takes the logical rows under the picture */
+    SDL_Rect to = { fit.x, fit.y, fit.w, (int)((int64_t)fit.h * h / logical_h()) };
+    SDL_Texture *from = s_tex;
+    bool nearest = fit.filter != CYC_FIT_LINEAR;
+    if (fit.filter == CYC_FIT_SHARP) {
+        if (fit_texture(w * fit.multiple, h * fit.multiple)) {
+            SDL_SetTextureScaleMode(s_tex, SDL_ScaleModeNearest);
+            SDL_SetRenderTarget(s_ren, s_fit_tex);
+            SDL_RenderClear(s_ren);
+            SDL_RenderCopy(s_ren, s_tex, NULL, NULL);
+            SDL_SetRenderTarget(s_ren, NULL);
+            from = s_fit_tex;
+        } else {
+            nearest = false;
+        }
+    }
+    if (from == s_tex) SDL_SetTextureScaleMode(s_tex, nearest ? SDL_ScaleModeNearest : SDL_ScaleModeLinear);
+    int lw = 0, lh = 0;
+    SDL_Rect viewport;
+    SDL_RenderGetLogicalSize(s_ren, &lw, &lh);
+    SDL_RenderGetViewport(s_ren, &viewport);
+    SDL_RenderSetLogicalSize(s_ren, 0, 0);
+    SDL_RenderSetViewport(s_ren, NULL);
+    SDL_RenderClear(s_ren);
+    SDL_RenderCopy(s_ren, from, NULL, &to);
+    SDL_RenderSetLogicalSize(s_ren, lw, lh);
+    SDL_RenderSetViewport(s_ren, &viewport);
+}
+
 static void show(bool loading, const char *toast_title, const char *toast_body)
 {
     int w, h;
@@ -1264,6 +1349,10 @@ static void show(bool loading, const char *toast_title, const char *toast_body)
 #ifdef CYC_WITH_RECOMP_UI
     cyc_state_ui_picture(pic, w, h);
 #endif
+    if (s_picture_sharp != s_sharp) {
+        s_sharp = s_picture_sharp;
+        apply_picture_scale();
+    }
     if (!ensure_texture(w, h)) return;
 #ifndef CYC_WITH_RECOMP_UI
     /* no runtime UI: the toast goes into a copy of the picture */
@@ -1284,9 +1373,14 @@ static void show(bool loading, const char *toast_title, const char *toast_body)
 #endif
     SDL_UpdateTexture(s_tex, NULL, pic, w * 4);
     SDL_SetRenderDrawColor(s_ren, 0, 0, 0, 255);
-    SDL_RenderClear(s_ren);
-    SDL_Rect dst = { 0, 0, w, h };
-    SDL_RenderCopy(s_ren, s_tex, NULL, &dst);
+    if (s_sharp) {
+        draw_fixed(w, h);
+    } else {
+        SDL_SetTextureScaleMode(s_tex, s_set.linear_filter ? SDL_ScaleModeLinear : SDL_ScaleModeNearest);
+        SDL_RenderClear(s_ren);
+        SDL_Rect dst = { 0, 0, w, h };
+        SDL_RenderCopy(s_ren, s_tex, NULL, &dst);
+    }
     CycZapperState gun;
     cyc_zapper_state(&gun);
     int aim_x = -1, aim_y = -1;
@@ -1387,6 +1481,7 @@ int cyc_sdl_main(const char *title_in, int scale)
         return 2;
     }
     s_running=true;s_frames_done=(long)cyc_ring_frame;s_tex=NULL;s_pad_count=0;s_vpad_joy=NULL;
+    s_sharp=false;s_fit_tex=NULL;s_fit_w=s_fit_h=s_fit_failed_w=s_fit_failed_h=0;
     /* a path names the game by its file's stem */
     char title[256];
     const char *base = title_in, *s1 = strrchr(title_in, '/'), *s2 = strrchr(title_in, '\\');
@@ -1759,6 +1854,8 @@ int cyc_sdl_main(const char *title_in, int scale)
     s_audio_dev = 0;
     for (int i = 0; i < s_pad_count; ++i) SDL_GameControllerClose(s_pads[i]);
     if (s_vpad_joy) SDL_JoystickClose(s_vpad_joy);
+    if (s_fit_tex) SDL_DestroyTexture(s_fit_tex);
+    s_fit_tex = NULL;
     SDL_DestroyTexture(s_tex);
     SDL_DestroyRenderer(s_ren);
     SDL_DestroyWindow(s_win);

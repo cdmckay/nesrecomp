@@ -1263,11 +1263,28 @@ the oracle separately for the unattached-controller machine.
 
 **Games** add to the window with `nesrecomp_add_cycle_game(... HOST_EXTRAS
 <sources>)` defining `cyc_host_extras()` (`cyc_host_extras.h`): a presented
-picture of their own size (widescreen), view modes for the menu's View mode
-row, extra menu rows, their own config.ini `[Game]` keys, per-frame work
+picture of their own size (widescreen), the one fixed scale for it
+(`sharp_scale`, below), view modes for the menu's View mode row, extra menu rows, their own config.ini `[Game]` keys, per-frame work
 (`power_on`, `frame_begin`, `frame_end`), developer command-line options and
 TCP commands. A game built with `MODS` has the launcher's Mods screen and the
 runtime menu's Mods rows ([Game mods](#game-mods)).
+
+**The fixed scale** (`cyc_present_fit.h`). The window scales the picture as
+the player's `[Display] IntegerScale` and `LinearFilter` say, unless a game's
+`sharp_scale` asks, frame by frame, for one fixed rule for the picture its
+`present` returned, so that every player sees the picture its tests check
+(Faxanadu DX's fixed 424x240 view). The rule: the largest scale that fits the
+drawable in pixels (not the window's points), keeping the picture's shape,
+centred with black bars; nearest-neighbour at a whole multiple (424x240 at
+720p, 1440p and 4K: 3x, 6x, 9x); otherwise sharp, nearest-neighbour into a
+target texture at the next whole multiple and that linearly down to the fit
+(1080p: 4.5x, 1908x1080, from 5x), so each pixel keeps its colour but for a
+one-pixel blend at most at its edges; below 1x, linearly down. It is drawn in
+the drawable's pixels with the logical size off, as the runtime menu is, and
+integer scaling stays off for it, so the logical size the overlays and the
+mouse use letterboxes the same rectangle. A renderer without target textures
+gets the linear step alone. The settings apply as before to every other
+picture. `present_fit_test` (CTest `cyc_present_fit_test`) checks the rule.
 
 **TCP** (`cyc_tcp.h`; `--tcp PORT`, `NESRECOMP_CYC_TCP`, or `debug.ini` beside
 the executable for port 4370): JSON over newline as in [debug protocol](../../docs/TCP.md).

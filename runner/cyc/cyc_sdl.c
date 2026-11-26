@@ -1223,13 +1223,31 @@ static bool dev_key(SDL_Scancode sc)
 
 /* ---- presentation ---- */
 
+/* Everything the window drew this frame, the whole w x h drawable, bars and
+ * all. The logical size is off while it reads: SDL2 reads a NULL viewport as
+ * the whole target, but sdl2-compat (SDL3) as the logical size's letterbox:
+ * that went to the buffer's top left, and the rest was never written. */
+static bool read_window(uint32_t *px, int w)
+{
+    int lw = 0, lh = 0;
+    SDL_Rect viewport;
+    SDL_RenderGetLogicalSize(s_ren, &lw, &lh);
+    SDL_RenderGetViewport(s_ren, &viewport);
+    SDL_RenderSetLogicalSize(s_ren, 0, 0);
+    SDL_RenderSetViewport(s_ren, NULL);
+    bool ok = SDL_RenderReadPixels(s_ren, NULL, SDL_PIXELFORMAT_ARGB8888, px, w * 4) == 0;
+    SDL_RenderSetLogicalSize(s_ren, lw, lh);
+    SDL_RenderSetViewport(s_ren, &viewport);
+    return ok;
+}
+
 static void present_shot(long frame)
 {
     int w = 0, h = 0;
     SDL_GetRendererOutputSize(s_ren, &w, &h);
     uint32_t *px = (uint32_t *)malloc((size_t)w * (size_t)h * 4);
     if (!px) return;
-    if (SDL_RenderReadPixels(s_ren, NULL, SDL_PIXELFORMAT_ARGB8888, px, w * 4) == 0) {
+    if (read_window(px, w)) {
         char path[1024];
         const char *base = s_present_out, *dot = strrchr(base, '.');
         int stem = (int)(dot ? (size_t)(dot - base) : strlen(base));
@@ -1296,14 +1314,8 @@ static void show(bool loading, const char *toast_title, const char *toast_body)
         int ow = 0, oh = 0;
         SDL_GetRendererOutputSize(s_ren, &ow, &oh);
         uint32_t *px = (uint32_t *)malloc((size_t)ow * (size_t)oh * 4);
-        /* ReadPixels(NULL) reads only the current picture viewport. Capture
-         * the whole window, including pillarboxes and the full-size menu. */
-        SDL_Rect viewport;
-        SDL_RenderGetViewport(s_ren, &viewport);
-        SDL_RenderSetViewport(s_ren, NULL);
-        bool ok = px && SDL_RenderReadPixels(s_ren, NULL, SDL_PIXELFORMAT_ARGB8888, px, ow * 4) == 0 &&
-                  cyc_write_png(s_ui_shot, px, ow, oh);
-        SDL_RenderSetViewport(s_ren, &viewport);
+        /* the whole window, including the bars and the full-size menu */
+        bool ok = px && read_window(px, ow) && cyc_write_png(s_ui_shot, px, ow, oh);
         free(px);
         char q[1100], fl[1200];
         cyc_tcp_quote(s_ui_shot, q, sizeof(q));

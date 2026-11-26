@@ -1273,7 +1273,8 @@ runtime menu's Mods rows ([Game mods](#game-mods)).
 the executable for port 4370): JSON over newline as in [debug protocol](../../docs/TCP.md).
 `key` and `pad` (an SDL virtual controller) hold input through the bindings,
 `action` holds an action, `disk`, `menu`, `hle`, `screenshot` (layer
-`picture`: the game alone; `ui`: everything the window drew), `state`,
+`picture`: the game alone; `ui`: everything the window drew, the whole
+drawable with its bars, as the window's `--present-out` writes it), `state`,
 `read_ram`, `ring_dump`, `save_state` / `load_state` (path), `video` (the
 presented width and mode, optionally setting the mode), `window_size` (w, h:
 Fit follows the new drawable), `mod_stats` (hook sites, isolated calls,
